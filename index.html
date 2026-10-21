@@ -14,9 +14,9 @@
 </head>
 <body>
   <div id="app">
-    <header class="top">
+    <header class="top raised">
       <div class="stat" aria-label="Mines left"><span class="stat-label">Mines</span><span id="mines" class="stat-value">000</span></div>
-      <button id="face" class="face" aria-label="New game">🙂</button>
+      <button id="face" class="face raised" aria-label="New game"><span>🙂</span></button>
       <div class="stat right" aria-label="Time"><span class="stat-label">Time</span><span id="time" class="stat-value">000</span></div>
     </header>
 
@@ -24,15 +24,16 @@
 
     <footer class="bottom">
       <div class="seg" id="difficulty" role="tablist">
+        <div class="thumb" aria-hidden="true"></div>
         <button data-d="beginner">Easy</button>
         <button data-d="intermediate">Medium</button>
         <button data-d="expert">Hard</button>
         <button data-d="custom">Custom</button>
       </div>
       <div class="row">
-        <button id="mode" class="pill" aria-pressed="false">⛏ Dig</button>
-        <button id="best" class="pill">🏆 Best</button>
-        <button id="theme" class="pill">◐ Auto</button>
+        <button id="mode" class="pill raised" aria-pressed="false"></button>
+        <button id="best" class="pill raised"></button>
+        <button id="theme" class="pill raised"></button>
       </div>
     </footer>
 

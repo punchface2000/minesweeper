@@ -1,6 +1,8 @@
 import './style.css';
 import { Game, LIMITS, PRESETS, clampConfig, type Config, type Difficulty } from './game';
 import { loadBest, loadSettings, recordTime, saveSettings, type Mode, type Theme } from './storage';
+import { AUTO, CROSS, FLAG, FLAG_ICON, MINE, MOON, SHOVEL, SUN, TROPHY } from './icons';
+import { confetti } from './confetti';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -20,17 +22,18 @@ let timer = 0;
 let startedAt = 0;
 let elapsed = 0;
 
+let press: { i: number; x: number; y: number; id: number; t: number; long: boolean } | null = null;
 const pad = (n: number) => String(Math.max(0, Math.min(999, n))).padStart(3, '0');
 
 /* ---------- theme ---------- */
-const THEME_LABEL: Record<Theme, string> = { auto: '◐ Auto', dark: '☾ Dark', light: '☀ Light' };
+const THEME_LABEL: Record<Theme, string> = { auto: `${AUTO}Auto`, dark: `${MOON}Dark`, light: `${SUN}Light` };
 function applyTheme(): void {
   const root = document.documentElement;
   if (settings.theme === 'auto') root.removeAttribute('data-theme');
   else root.dataset.theme = settings.theme;
-  themeBtn.textContent = THEME_LABEL[settings.theme];
+  themeBtn.innerHTML = THEME_LABEL[settings.theme];
   const dark = settings.theme === 'dark' || (settings.theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0f1115' : '#f4f5f8');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0d1017' : '#e9edf4');
 }
 
 /* ---------- timer ---------- */
@@ -47,14 +50,28 @@ function startTimer(): void {
 }
 
 /* ---------- board ---------- */
-const GAP = 3;
+const GAP = 4; // keep in sync with --gap in style.css
+const PAD = 8; // keep in sync with --pad in style.css
 function sizeBoard(): void {
   const wrap = boardEl.parentElement!;
-  const maxW = wrap.clientWidth - GAP * (game.cols - 1);
-  const maxH = wrap.clientHeight - GAP * (game.rows - 1);
+  const maxW = wrap.clientWidth - 2 * PAD - GAP * (game.cols - 1);
+  const maxH = wrap.clientHeight - 2 * PAD - GAP * (game.rows - 1) - 4;
   const cell = Math.floor(Math.min(maxW / game.cols, maxH / game.rows, 46));
   boardEl.style.setProperty('--size', `${cell}px`);
 }
+
+/* ---------- face ---------- */
+let face = '🙂';
+function setFace(f: string, bump = false): void {
+  const span = faceEl.firstElementChild as HTMLElement;
+  if (face !== f) span.textContent = face = f;
+  if (bump) {
+    faceEl.classList.remove('bump');
+    void faceEl.offsetWidth; // restart animation
+    faceEl.classList.add('bump');
+  }
+}
+const restingFace = () => (game.status === 'won' ? '😎' : game.status === 'lost' ? '😵' : '🙂');
 
 function newGame(): void {
   stopTimer();
@@ -72,55 +89,101 @@ function newGame(): void {
     boardEl.appendChild(el);
     cellEls.push(el);
   }
-  document.querySelectorAll<HTMLButtonElement>('#difficulty button').forEach((b) => b.classList.toggle('on', b.dataset.d === settings.difficulty));
+  const segBtns = [...document.querySelectorAll<HTMLButtonElement>('#difficulty button')];
+  segBtns.forEach((b) => b.classList.toggle('on', b.dataset.d === settings.difficulty));
+  document.querySelector<HTMLElement>('#difficulty .thumb')!.style.setProperty('--i', String(segBtns.findIndex((b) => b.dataset.d === settings.difficulty)));
   sizeBoard();
   render();
+  setFace('🙂', true);
 }
 
-function render(): void {
+const dist = (a: number, b: number) =>
+  Math.max(Math.abs((a % game.cols) - (b % game.cols)), Math.abs(Math.floor(a / game.cols) - Math.floor(b / game.cols)));
+
+function animate(el: HTMLElement, name: string, delay = 0): void {
+  el.style.setProperty('--delay', `${delay}ms`);
+  el.dataset.anim = name;
+}
+
+/** Sync the DOM with the game. `origin` is the cell the player touched; animations ripple out from it. */
+function render(origin = -1): void {
+  const lost = game.status === 'lost';
   game.cells.forEach((c, i) => {
     const el = cellEls[i];
     let cls = 'cell';
-    let text = '';
+    let key = 'h';
+    let html = '';
     if (c.revealed) {
       cls += ' open';
       if (c.mine) {
         cls += i === game.explodedIndex ? ' boom' : ' mine';
-        text = '✹';
+        key = 'm';
+        html = MINE;
       } else if (c.adjacent) {
         cls += ` n${c.adjacent}`;
-        text = String(c.adjacent);
-      }
+        key = `n${c.adjacent}`;
+        html = String(c.adjacent);
+      } else key = 'o';
     } else if (c.flagged) {
-      cls += ' flag';
-      text = game.status === 'lost' && !c.mine ? '✕' : '⚑';
-      if (game.status === 'lost' && !c.mine) cls += ' wrong';
+      if (lost && !c.mine) {
+        cls += ' wrong';
+        key = 'x';
+        html = CROSS;
+      } else {
+        cls += ' flag';
+        key = 'f';
+        html = FLAG;
+      }
     }
-    el.className = cls;
-    if (el.textContent !== text) el.textContent = text;
+    if (press?.i === i) cls += ' down';
+    if (el.className !== cls) el.className = cls;
+
+    const prev = el.dataset.k;
+    if (prev === key) return;
+    el.dataset.k = key;
+    el.innerHTML = html;
+    if (prev === undefined) return; // fresh board, no animation
+    if (key === 'm' || key === 'x') {
+      animate(el, 'mine', i === game.explodedIndex ? 0 : 250 + Math.min(dist(i, game.explodedIndex) * 70, 1600));
+    } else if (c.revealed) {
+      animate(el, 'reveal', origin < 0 ? 0 : Math.min(dist(i, origin) * 24, 480));
+    } else if (key === 'f') {
+      animate(el, 'flag');
+    } else if (prev === 'f') {
+      animate(el, 'unflag');
+    }
   });
   minesEl.textContent = pad(game.minesLeft);
-  faceEl.textContent = game.status === 'won' ? '😎' : game.status === 'lost' ? '😵' : '🙂';
+  if (!press) setFace(restingFace());
 }
 
-function afterMove(prev: string): void {
+function afterMove(prev: string, origin: number): void {
   // the very first move can already end the game (e.g. a nearly full board), so always stamp the start
   if (prev === 'ready') startTimer();
-  render();
-  if (game.status === 'won' || game.status === 'lost') finish();
+  render(origin);
+  if ((game.status === 'won' || game.status === 'lost') && prev !== game.status) finish(origin);
 }
 
-function finish(): void {
+function finish(origin: number): void {
   stopTimer();
   elapsed = Math.max(1, Math.floor((Date.now() - startedAt) / 1000));
   timeEl.textContent = pad(elapsed);
+  setFace(restingFace(), true);
   if (game.status === 'won') {
+    // victory wave across the whole board, then confetti
+    setTimeout(() => cellEls.forEach((el, i) => animate(el, 'win', dist(i, origin) * 45)), 300);
+    const r = boardEl.getBoundingClientRect();
+    setTimeout(() => confetti(r.left + r.width / 2, r.top + r.height / 2), 450);
     // best times are only kept for the fixed presets, custom boards aren't comparable
     const rank = settings.difficulty === 'custom' ? null : recordTime(settings.difficulty, elapsed);
-    const note = rank && settings.difficulty !== 'custom' ? `<br>New #${rank} on ${label(settings.difficulty)}.` : '';
-    setTimeout(() => showSheet('You win! 🎉', `Cleared in <b>${elapsed}s</b>.` + note), 350);
+    const note = rank && settings.difficulty !== 'custom' ? `<p>🏆 New #${rank} best on ${label(settings.difficulty)}!</p>` : '';
+    setTimeout(() => showSheet('You win! 🎉', `<div class="big-time">${elapsed}s</div>${note}`, true), 1500);
   } else {
-    setTimeout(() => showSheet('Boom 💥', 'Tap the face to try again.'), 600);
+    boardEl.classList.remove('shake');
+    void boardEl.offsetWidth;
+    boardEl.classList.add('shake');
+    const mines = game.cells.filter((c) => c.mine).length;
+    setTimeout(() => showSheet('Boom 💥', '<p>Tap OK for a new game, or tap above to look at the board.</p>', true), Math.min(900 + mines * 25, 2300));
   }
 }
 
@@ -129,7 +192,6 @@ const label = (d: Difficulty) => ({ beginner: 'Easy', intermediate: 'Medium', ex
 /* ---------- input: tap = dig, long-press = flag ---------- */
 const LONG_PRESS_MS = 320;
 const MOVE_TOLERANCE = 10;
-let press: { i: number; x: number; y: number; id: number; t: number; long: boolean } | null = null;
 
 function act(i: number, secondary: boolean): void {
   const prev = game.status;
@@ -142,48 +204,58 @@ function act(i: number, secondary: boolean): void {
   } else {
     game.reveal(i);
   }
-  if (secondary && navigator.vibrate) navigator.vibrate(12);
-  afterMove(prev);
+  afterMove(prev, i);
 }
+
+function release(): void {
+  if (!press) return;
+  clearTimeout(press.t);
+  const el = cellEls[press.i];
+  press = null;
+  el?.classList.remove('down');
+  setFace(restingFace());
+}
+
+boardEl.style.setProperty('--hold', `${LONG_PRESS_MS}ms`);
 
 boardEl.addEventListener('pointerdown', (e) => {
   const el = (e.target as HTMLElement).closest<HTMLElement>('.cell');
-  if (!el) return;
+  if (!el || game.status === 'won' || game.status === 'lost') return;
   e.preventDefault();
   const i = Number(el.dataset.i);
   if (e.pointerType === 'mouse' && e.button === 2) {
     act(i, true);
     return;
   }
+  release();
   const p = { i, x: e.clientX, y: e.clientY, id: e.pointerId, t: 0, long: false };
   p.t = window.setTimeout(() => {
     p.long = true;
+    el.classList.remove('down');
     act(i, true);
   }, LONG_PRESS_MS);
   press = p;
+  el.classList.add('down');
+  if (!game.cells[i].revealed) setFace('😮');
 });
 
 boardEl.addEventListener('pointermove', (e) => {
   if (!press || e.pointerId !== press.id) return;
-  if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > MOVE_TOLERANCE) {
-    clearTimeout(press.t);
-    press = null;
-  }
+  if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > MOVE_TOLERANCE) release();
 });
 
 boardEl.addEventListener('pointerup', (e) => {
   if (!press || e.pointerId !== press.id) return;
-  clearTimeout(press.t);
   const { i, long } = press;
-  press = null;
+  release();
   if (!long) act(i, false);
 });
 
-boardEl.addEventListener('pointercancel', () => {
-  if (press) clearTimeout(press.t);
-  press = null;
-});
+boardEl.addEventListener('pointercancel', release);
 boardEl.addEventListener('contextmenu', (e) => e.preventDefault());
+boardEl.addEventListener('animationend', (e) => {
+  if (e.target === boardEl) boardEl.classList.remove('shake');
+});
 
 /* ---------- controls ---------- */
 faceEl.addEventListener('click', newGame);
@@ -256,12 +328,18 @@ $('sheet-body').addEventListener('click', (e) => {
   updateHint();
 });
 
-modeBtn.addEventListener('click', () => {
-  flagMode = !flagMode;
-  modeBtn.textContent = flagMode ? '⚑ Flag' : '⛏ Dig';
+function renderMode(): void {
+  modeBtn.innerHTML = flagMode ? `${FLAG_ICON}Flag mode` : `${SHOVEL}Dig mode`;
   modeBtn.setAttribute('aria-pressed', String(flagMode));
   modeBtn.classList.toggle('on', flagMode);
+  document.body.classList.toggle('flag-mode', flagMode);
+}
+modeBtn.addEventListener('click', () => {
+  flagMode = !flagMode;
+  renderMode();
 });
+$('best').innerHTML = `${TROPHY}Best`;
+renderMode();
 
 themeBtn.addEventListener('click', () => {
   const order: Theme[] = ['auto', 'dark', 'light'];
@@ -270,7 +348,8 @@ themeBtn.addEventListener('click', () => {
   applyTheme();
 });
 
-function showSheet(title: string, html: string): void {
+function showSheet(title: string, html: string, result = false): void {
+  sheet.classList.toggle('result', result);
   $('sheet-title').textContent = title;
   $('sheet-body').innerHTML = html;
   $('sheet-close').hidden = false;
@@ -278,6 +357,7 @@ function showSheet(title: string, html: string): void {
 }
 $('sheet-close').addEventListener('click', () => {
   sheet.hidden = true;
+  if (game.status === 'won' || game.status === 'lost') newGame();
 });
 sheet.addEventListener('click', (e) => {
   if (e.target === sheet) sheet.hidden = true;
