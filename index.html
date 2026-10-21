@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
-  <meta name="theme-color" content="#0f1115" />
+  <meta name="theme-color" content="#f5f0e6" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Minesweeper" />
   <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
@@ -14,26 +14,38 @@
 </head>
 <body>
   <div id="app">
-    <header class="top raised">
-      <div class="stat" aria-label="Mines left"><span class="stat-label">Mines</span><span id="mines" class="stat-value">000</span></div>
-      <button id="face" class="face raised" aria-label="New game"><span>🙂</span></button>
-      <div class="stat right" aria-label="Time"><span class="stat-label">Time</span><span id="time" class="stat-value">000</span></div>
+    <header class="masthead">
+      <h1>Mine<i>sweeper</i></h1>
+      <div class="issue mono"><span id="edition"></span><br><span id="today"></span></div>
     </header>
 
-    <main class="board-wrap"><div id="board" class="board" role="grid"></div></main>
+    <div class="stats">
+      <div class="stat"><span class="mono">Mines left</span><b id="mines">10</b></div>
+      <div class="stat"><span class="mono">Time</span><b id="time">0:00</b></div>
+      <button id="new" class="stat new"><span>New game</span></button>
+    </div>
+
+    <main class="board-wrap">
+      <div class="board-frame">
+        <div id="board" class="board" role="grid"></div>
+        <div id="stamp" class="stamp" hidden><span>Solved</span></div>
+      </div>
+    </main>
 
     <footer class="bottom">
-      <div class="seg" id="difficulty" role="tablist">
-        <div class="thumb" aria-hidden="true"></div>
+      <nav class="tabs" id="difficulty" role="tablist">
         <button data-d="beginner">Easy</button>
         <button data-d="intermediate">Medium</button>
         <button data-d="expert">Hard</button>
         <button data-d="custom">Custom</button>
-      </div>
-      <div class="row">
-        <button id="mode" class="pill raised" aria-pressed="false"></button>
-        <button id="best" class="pill raised"></button>
-        <button id="theme" class="pill raised"></button>
+        <span class="underline" aria-hidden="true"></span>
+      </nav>
+      <div class="foot">
+        <button id="mode" class="mode" aria-pressed="false"><span class="dig">Dig</span><span class="flag">Flag</span></button>
+        <div class="links">
+          <button id="best">Records</button>
+          <button id="theme">Theme</button>
+        </div>
       </div>
     </footer>
 

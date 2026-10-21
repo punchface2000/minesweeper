@@ -1,17 +1,16 @@
 import './style.css';
 import { Game, LIMITS, PRESETS, clampConfig, type Config, type Difficulty } from './game';
 import { loadBest, loadSettings, recordTime, saveSettings, type Mode, type Theme } from './storage';
-import { AUTO, CROSS, FLAG, FLAG_ICON, MINE, MOON, SHOVEL, SUN, TROPHY } from './icons';
-import { confetti } from './confetti';
+import { CROSS, FLAG, MINE } from './icons';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 const boardEl = $('board');
 const minesEl = $('mines');
 const timeEl = $('time');
-const faceEl = $('face');
 const modeBtn = $('mode');
 const themeBtn = $('theme');
+const stampEl = $('stamp');
 const sheet = $('sheet');
 
 const settings = loadSettings();
@@ -21,19 +20,22 @@ let flagMode = false;
 let timer = 0;
 let startedAt = 0;
 let elapsed = 0;
-
 let press: { i: number; x: number; y: number; id: number; t: number; long: boolean } | null = null;
-const pad = (n: number) => String(Math.max(0, Math.min(999, n))).padStart(3, '0');
+let pending: number[] = []; // timeouts belonging to the current round (stamp, sheets)
+
+const LABEL: Record<Mode, string> = { beginner: 'Easy', intermediate: 'Medium', expert: 'Hard', custom: 'Custom' };
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+const later = (fn: () => void, ms: number) => pending.push(window.setTimeout(fn, ms));
 
 /* ---------- theme ---------- */
-const THEME_LABEL: Record<Theme, string> = { auto: `${AUTO}Auto`, dark: `${MOON}Dark`, light: `${SUN}Light` };
+const THEME_LABEL: Record<Theme, string> = { auto: 'Auto', dark: 'Dark', light: 'Light' };
 function applyTheme(): void {
   const root = document.documentElement;
   if (settings.theme === 'auto') root.removeAttribute('data-theme');
   else root.dataset.theme = settings.theme;
-  themeBtn.innerHTML = THEME_LABEL[settings.theme];
+  themeBtn.textContent = `Theme: ${THEME_LABEL[settings.theme]}`;
   const dark = settings.theme === 'dark' || (settings.theme === 'auto' && matchMedia('(prefers-color-scheme: dark)').matches);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#0d1017' : '#e9edf4');
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#1d1b18' : '#f5f0e6');
 }
 
 /* ---------- timer ---------- */
@@ -44,40 +46,37 @@ function stopTimer(): void {
 function startTimer(): void {
   startedAt = Date.now();
   timer = window.setInterval(() => {
-    elapsed = Math.floor((Date.now() - startedAt) / 1000);
-    timeEl.textContent = pad(elapsed);
+    const s = Math.floor((Date.now() - startedAt) / 1000);
+    if (s !== elapsed) timeEl.textContent = clock((elapsed = s));
   }, 250);
 }
 
 /* ---------- board ---------- */
-const GAP = 4; // keep in sync with --gap in style.css
-const PAD = 8; // keep in sync with --pad in style.css
+const GAP = 1; // keep in sync with .board gap in style.css
+const FRAME = 2; // keep in sync with .board border in style.css
 function sizeBoard(): void {
-  const wrap = boardEl.parentElement!;
-  const maxW = wrap.clientWidth - 2 * PAD - GAP * (game.cols - 1);
-  const maxH = wrap.clientHeight - 2 * PAD - GAP * (game.rows - 1) - 4;
-  const cell = Math.floor(Math.min(maxW / game.cols, maxH / game.rows, 46));
+  const wrap = boardEl.parentElement!.parentElement!; // .board-wrap
+  const cs = getComputedStyle(wrap);
+  const availW = wrap.clientWidth - 2 * FRAME - GAP * (game.cols - 1);
+  const availH = wrap.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 2 * FRAME - GAP * (game.rows - 1);
+  const cell = Math.floor(Math.min(availW / game.cols, availH / game.rows, 56));
   boardEl.style.setProperty('--size', `${cell}px`);
 }
 
-/* ---------- face ---------- */
-let face = '🙂';
-function setFace(f: string, bump = false): void {
-  const span = faceEl.firstElementChild as HTMLElement;
-  if (face !== f) span.textContent = face = f;
-  if (bump) {
-    faceEl.classList.remove('bump');
-    void faceEl.offsetWidth; // restart animation
-    faceEl.classList.add('bump');
-  }
+function config(): Config {
+  return settings.difficulty === 'custom' ? clampConfig(settings.custom) : PRESETS[settings.difficulty];
 }
-const restingFace = () => (game.status === 'won' ? '😎' : game.status === 'lost' ? '😵' : '🙂');
 
 function newGame(): void {
   stopTimer();
+  pending.forEach(clearTimeout);
+  pending = [];
+  press = null;
   elapsed = 0;
-  game = new Game(settings.difficulty === 'custom' ? clampConfig(settings.custom) : PRESETS[settings.difficulty]);
-  timeEl.textContent = pad(0);
+  game = new Game(config());
+  timeEl.textContent = clock(0);
+  stampEl.hidden = true;
+  sheet.hidden = true;
   boardEl.style.gridTemplateColumns = `repeat(${game.cols}, var(--size))`;
   boardEl.replaceChildren();
   cellEls = [];
@@ -89,12 +88,21 @@ function newGame(): void {
     boardEl.appendChild(el);
     cellEls.push(el);
   }
-  const segBtns = [...document.querySelectorAll<HTMLButtonElement>('#difficulty button')];
-  segBtns.forEach((b) => b.classList.toggle('on', b.dataset.d === settings.difficulty));
-  document.querySelector<HTMLElement>('#difficulty .thumb')!.style.setProperty('--i', String(segBtns.findIndex((b) => b.dataset.d === settings.difficulty)));
+  $('edition').textContent = `${LABEL[settings.difficulty]} · ${game.cols}×${game.rows}`;
+  updateTabs();
   sizeBoard();
   render();
-  setFace('🙂', true);
+}
+
+function updateTabs(): void {
+  const btns = [...document.querySelectorAll<HTMLButtonElement>('#difficulty button')];
+  btns.forEach((b) => b.classList.toggle('on', b.dataset.d === settings.difficulty));
+  const on = btns.find((b) => b.dataset.d === settings.difficulty);
+  const line = document.querySelector<HTMLElement>('#difficulty .underline')!;
+  if (on) {
+    line.style.width = `${on.offsetWidth}px`;
+    line.style.transform = `translateX(${on.offsetLeft}px)`;
+  }
 }
 
 const dist = (a: number, b: number) =>
@@ -105,7 +113,7 @@ function animate(el: HTMLElement, name: string, delay = 0): void {
   el.dataset.anim = name;
 }
 
-/** Sync the DOM with the game. `origin` is the cell the player touched; animations ripple out from it. */
+/** Sync the DOM with the game. `origin` is the touched cell; reveals ink in outward from it. */
 function render(origin = -1): void {
   const lost = game.status === 'lost';
   game.cells.forEach((c, i) => {
@@ -126,7 +134,7 @@ function render(origin = -1): void {
       } else key = 'o';
     } else if (c.flagged) {
       if (lost && !c.mine) {
-        cls += ' wrong';
+        cls += ' flag wrong';
         key = 'x';
         html = CROSS;
       } else {
@@ -142,52 +150,46 @@ function render(origin = -1): void {
     if (prev === key) return;
     el.dataset.k = key;
     el.innerHTML = html;
-    if (prev === undefined) return; // fresh board, no animation
+    if (prev === undefined) return; // fresh board: no animation
     if (key === 'm' || key === 'x') {
-      animate(el, 'mine', i === game.explodedIndex ? 0 : 250 + Math.min(dist(i, game.explodedIndex) * 70, 1600));
+      animate(el, 'mine', i === game.explodedIndex ? 0 : 200 + Math.min(dist(i, game.explodedIndex) * 60, 1200));
     } else if (c.revealed) {
-      animate(el, 'reveal', origin < 0 ? 0 : Math.min(dist(i, origin) * 24, 480));
+      animate(el, 'reveal', origin < 0 ? 0 : Math.min(dist(i, origin) * 22, 400));
     } else if (key === 'f') {
       animate(el, 'flag');
     } else if (prev === 'f') {
       animate(el, 'unflag');
     }
   });
-  minesEl.textContent = pad(game.minesLeft);
-  if (!press) setFace(restingFace());
+  minesEl.textContent = String(game.minesLeft);
 }
 
 function afterMove(prev: string, origin: number): void {
   // the very first move can already end the game (e.g. a nearly full board), so always stamp the start
   if (prev === 'ready') startTimer();
   render(origin);
-  if ((game.status === 'won' || game.status === 'lost') && prev !== game.status) finish(origin);
+  if ((game.status === 'won' || game.status === 'lost') && prev !== game.status) finish();
 }
 
-function finish(origin: number): void {
+function finish(): void {
   stopTimer();
   elapsed = Math.max(1, Math.floor((Date.now() - startedAt) / 1000));
-  timeEl.textContent = pad(elapsed);
-  setFace(restingFace(), true);
+  timeEl.textContent = clock(elapsed);
   if (game.status === 'won') {
-    // victory wave across the whole board, then confetti
-    setTimeout(() => cellEls.forEach((el, i) => animate(el, 'win', dist(i, origin) * 45)), 300);
-    const r = boardEl.getBoundingClientRect();
-    setTimeout(() => confetti(r.left + r.width / 2, r.top + r.height / 2), 450);
+    later(() => (stampEl.hidden = false), 350);
     // best times are only kept for the fixed presets, custom boards aren't comparable
-    const rank = settings.difficulty === 'custom' ? null : recordTime(settings.difficulty, elapsed);
-    const note = rank && settings.difficulty !== 'custom' ? `<p>🏆 New #${rank} best on ${label(settings.difficulty)}!</p>` : '';
-    setTimeout(() => showSheet('You win! 🎉', `<div class="big-time">${elapsed}s</div>${note}`, true), 1500);
+    const d = settings.difficulty;
+    const rank = d === 'custom' ? null : recordTime(d, elapsed);
+    const note = rank ? `<p>A new no. ${rank} on ${LABEL[d]}.</p>` : `<p>${LABEL[d]}, ${game.cols}×${game.rows}, ${game.mines} mines.</p>`;
+    later(() => showSheet('Solved<i>.</i>', `<div class="big-time">${clock(elapsed)}</div>${note}`, true), 1300);
   } else {
     boardEl.classList.remove('shake');
-    void boardEl.offsetWidth;
+    void boardEl.offsetWidth; // restart animation
     boardEl.classList.add('shake');
     const mines = game.cells.filter((c) => c.mine).length;
-    setTimeout(() => showSheet('Boom 💥', '<p>Tap OK for a new game, or tap above to look at the board.</p>', true), Math.min(900 + mines * 25, 2300));
+    later(() => showSheet('Boom<i>.</i>', '<p>All mines are marked on the board.</p>', true), Math.min(900 + mines * 20, 2000));
   }
 }
-
-const label = (d: Difficulty) => ({ beginner: 'Easy', intermediate: 'Medium', expert: 'Hard' })[d];
 
 /* ---------- input: tap = dig, long-press = flag ---------- */
 const LONG_PRESS_MS = 320;
@@ -210,10 +212,8 @@ function act(i: number, secondary: boolean): void {
 function release(): void {
   if (!press) return;
   clearTimeout(press.t);
-  const el = cellEls[press.i];
+  cellEls[press.i]?.classList.remove('down');
   press = null;
-  el?.classList.remove('down');
-  setFace(restingFace());
 }
 
 boardEl.style.setProperty('--hold', `${LONG_PRESS_MS}ms`);
@@ -236,7 +236,6 @@ boardEl.addEventListener('pointerdown', (e) => {
   }, LONG_PRESS_MS);
   press = p;
   el.classList.add('down');
-  if (!game.cells[i].revealed) setFace('😮');
 });
 
 boardEl.addEventListener('pointermove', (e) => {
@@ -258,7 +257,7 @@ boardEl.addEventListener('animationend', (e) => {
 });
 
 /* ---------- controls ---------- */
-faceEl.addEventListener('click', newGame);
+$('new').addEventListener('click', newGame);
 
 document.querySelectorAll<HTMLButtonElement>('#difficulty button').forEach((b) =>
   b.addEventListener('click', () => {
@@ -273,6 +272,18 @@ document.querySelectorAll<HTMLButtonElement>('#difficulty button').forEach((b) =
   })
 );
 
+modeBtn.addEventListener('click', () => {
+  flagMode = !flagMode;
+  modeBtn.setAttribute('aria-pressed', String(flagMode));
+});
+
+themeBtn.addEventListener('click', () => {
+  const order: Theme[] = ['auto', 'light', 'dark'];
+  settings.theme = order[(order.indexOf(settings.theme) + 1) % order.length];
+  saveSettings(settings);
+  applyTheme();
+});
+
 /* ---------- custom board ---------- */
 function openCustom(): void {
   const c = clampConfig(settings.custom);
@@ -281,13 +292,13 @@ function openCustom(): void {
      <div class="stepper"><button type="button" data-step="${id}:-1" aria-label="less">−</button>
      <input id="${id}" type="number" inputmode="numeric" value="${v}"><button type="button" data-step="${id}:1" aria-label="more">+</button></div></div>`;
   showSheet(
-    'Custom board',
+    'Custom <i>board</i>',
     `<div class="custom-form">
       ${field('c-cols', 'Columns', `${LIMITS.minCols}–${LIMITS.maxCols}`, c.cols)}
       ${field('c-rows', 'Rows', `${LIMITS.minRows}–${LIMITS.maxRows}`, c.rows)}
-      ${field('c-mines', 'Mines', 'at least 1', c.mines)}
+      ${field('c-mines', 'Mines', 'AT LEAST 1', c.mines)}
       <p class="hint" id="c-hint"></p>
-      <button type="button" id="c-start" class="primary" style="margin-top:4px">Start game</button>
+      <button type="button" id="c-start" class="primary">Start game</button>
     </div>`
   );
   $('sheet-close').hidden = true;
@@ -305,9 +316,8 @@ function updateHint(): void {
   const raw = (id: string) => Number((document.getElementById(id) as HTMLInputElement).value);
   const c = readCustom();
   const adjusted = c.cols !== raw('c-cols') || c.rows !== raw('c-rows') || c.mines !== raw('c-mines');
-  const maxMines = c.cols * c.rows - 9;
   const density = Math.round((c.mines / (c.cols * c.rows)) * 100);
-  hint.textContent = `${c.cols}×${c.rows}, ${c.mines} mines (${density}%). Max ${maxMines} mines on this size${adjusted ? ' — values will be adjusted' : ''}.`;
+  hint.textContent = `${c.cols}×${c.rows} with ${c.mines} mines, ${density}% density. At most ${c.cols * c.rows - 9} mines fit${adjusted ? ', values will be adjusted' : ''}.`;
 }
 
 $('sheet-body').addEventListener('input', updateHint);
@@ -318,7 +328,6 @@ $('sheet-body').addEventListener('click', (e) => {
     settings.custom = readCustom();
     settings.difficulty = 'custom';
     saveSettings(settings);
-    sheet.hidden = true;
     newGame();
     return;
   }
@@ -328,36 +337,18 @@ $('sheet-body').addEventListener('click', (e) => {
   updateHint();
 });
 
-function renderMode(): void {
-  modeBtn.innerHTML = flagMode ? `${FLAG_ICON}Flag mode` : `${SHOVEL}Dig mode`;
-  modeBtn.setAttribute('aria-pressed', String(flagMode));
-  modeBtn.classList.toggle('on', flagMode);
-  document.body.classList.toggle('flag-mode', flagMode);
-}
-modeBtn.addEventListener('click', () => {
-  flagMode = !flagMode;
-  renderMode();
-});
-$('best').innerHTML = `${TROPHY}Best`;
-renderMode();
-
-themeBtn.addEventListener('click', () => {
-  const order: Theme[] = ['auto', 'dark', 'light'];
-  settings.theme = order[(order.indexOf(settings.theme) + 1) % order.length];
-  saveSettings(settings);
-  applyTheme();
-});
-
-function showSheet(title: string, html: string, result = false): void {
+/* ---------- sheet ---------- */
+function showSheet(titleHtml: string, html: string, result = false): void {
   sheet.classList.toggle('result', result);
-  $('sheet-title').textContent = title;
+  $('sheet-title').innerHTML = titleHtml;
   $('sheet-body').innerHTML = html;
   $('sheet-close').hidden = false;
+  $('sheet-close').textContent = result ? 'New game' : 'Close';
   sheet.hidden = false;
 }
 $('sheet-close').addEventListener('click', () => {
-  sheet.hidden = true;
-  if (game.status === 'won' || game.status === 'lost') newGame();
+  if (sheet.classList.contains('result')) newGame();
+  else sheet.hidden = true;
 });
 sheet.addEventListener('click', (e) => {
   if (e.target === sheet) sheet.hidden = true;
@@ -368,16 +359,24 @@ $('best').addEventListener('click', () => {
   const rows = (['beginner', 'intermediate', 'expert'] as Difficulty[])
     .map((d) => {
       const list = best[d] ?? [];
-      const times = list.length ? list.map((s, k) => `<li><span>${k + 1}.</span><b>${s}s</b></li>`).join('') : '<li class="none">No wins yet</li>';
-      return `<section><h3>${label(d)}</h3><ol>${times}</ol></section>`;
+      const times = list.length
+        ? list.map((s, k) => `<li><span>No. ${k + 1}</span><b>${clock(s)}</b></li>`).join('')
+        : '<li class="none">No wins yet</li>';
+      return `<section><h3 class="mono">${LABEL[d]}</h3><ol>${times}</ol></section>`;
     })
     .join('');
-  showSheet('Best times', rows);
+  showSheet('Records', rows);
 });
 
+/* ---------- boot ---------- */
+$('today').textContent = new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
-window.addEventListener('resize', sizeBoard);
+window.addEventListener('resize', () => {
+  sizeBoard();
+  updateTabs();
+});
 window.addEventListener('orientationchange', () => setTimeout(sizeBoard, 200));
+document.fonts?.ready.then(updateTabs);
 
 applyTheme();
 newGame();
