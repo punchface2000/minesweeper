@@ -12,7 +12,8 @@ export const PRESETS: Record<Difficulty, Config> = {
   expert: { cols: 12, rows: 22, mines: 55 }
 };
 
-export const LIMITS = { minCols: 5, maxCols: 16, minRows: 5, maxRows: 24 } as const;
+// Large boards are playable thanks to pinch-zoom; portrait phones suit tall boards.
+export const LIMITS = { minCols: 5, maxCols: 30, minRows: 5, maxRows: 40 } as const;
 
 /** Clamp a user-supplied board to playable limits. The first click needs a 3x3 safe zone, so mines <= cells - 9. */
 export function clampConfig(c: Config): Config {
@@ -30,6 +31,16 @@ export interface Cell {
 }
 
 export type Status = 'ready' | 'playing' | 'won' | 'lost';
+
+/** Compact, JSON-safe snapshot of a game. Each cell is one digit: bit0 mine, bit1 revealed, bit2 flagged. */
+export interface SavedGame {
+  cols: number;
+  rows: number;
+  mines: number;
+  status: Status;
+  explodedIndex: number;
+  cells: string;
+}
 
 export class Game {
   readonly cols: number;
@@ -52,6 +63,29 @@ export class Game {
       flagged: false,
       adjacent: 0
     }));
+  }
+
+  serialize(): SavedGame {
+    const cells = this.cells.map((c) => String((c.mine ? 1 : 0) | (c.revealed ? 2 : 0) | (c.flagged ? 4 : 0))).join('');
+    return { cols: this.cols, rows: this.rows, mines: this.mines, status: this.status, explodedIndex: this.explodedIndex, cells };
+  }
+
+  /** Rebuild a game from a snapshot. Returns null if the snapshot is malformed. */
+  static restore(s: SavedGame, rng: () => number = Math.random): Game | null {
+    if (!s || typeof s.cells !== 'string' || s.cells.length !== s.cols * s.rows || !/^[0-7]*$/.test(s.cells)) return null;
+    const g = new Game({ cols: s.cols, rows: s.rows, mines: s.mines }, rng);
+    g.cells.forEach((c, i) => {
+      const v = Number(s.cells[i]);
+      c.mine = !!(v & 1);
+      c.revealed = !!(v & 2);
+      c.flagged = !!(v & 4);
+    });
+    g.cells.forEach((c, i) => (c.adjacent = g.neighbors(i).filter((n) => g.cells[n].mine).length));
+    g.status = s.status;
+    g.explodedIndex = s.explodedIndex;
+    g.revealedCount = g.cells.filter((c) => c.revealed && !c.mine).length;
+    if (g.status === 'playing' && g.cells.filter((c) => c.mine).length !== g.mines) return null;
+    return g;
   }
 
   get flagCount(): number {
