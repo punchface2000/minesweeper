@@ -1,10 +1,13 @@
-import type { Difficulty } from './game';
+import type { Config, Difficulty } from './game';
 
 export type Theme = 'auto' | 'dark' | 'light';
 
+export type Mode = Difficulty | 'custom';
+
 export interface Settings {
-  difficulty: Difficulty;
+  difficulty: Mode;
   theme: Theme;
+  custom: Config;
 }
 
 const KEY_SETTINGS = 'minesweeper.settings';
@@ -27,7 +30,7 @@ function write(key: string, value: unknown): void {
   }
 }
 
-export const loadSettings = (): Settings => read<Settings>(KEY_SETTINGS, { difficulty: 'beginner', theme: 'auto' });
+export const loadSettings = (): Settings => read<Settings>(KEY_SETTINGS, { difficulty: 'beginner', theme: 'auto', custom: { cols: 10, rows: 14, mines: 25 } });
 export const saveSettings = (s: Settings): void => write(KEY_SETTINGS, s);
 
 export type BestTimes = Partial<Record<Difficulty, number[]>>;

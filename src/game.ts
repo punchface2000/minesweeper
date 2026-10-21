@@ -12,6 +12,16 @@ export const PRESETS: Record<Difficulty, Config> = {
   expert: { cols: 12, rows: 22, mines: 55 }
 };
 
+export const LIMITS = { minCols: 5, maxCols: 16, minRows: 5, maxRows: 24 } as const;
+
+/** Clamp a user-supplied board to playable limits. The first click needs a 3x3 safe zone, so mines <= cells - 9. */
+export function clampConfig(c: Config): Config {
+  const int = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Math.round(Number.isFinite(n) ? n : lo)));
+  const cols = int(c.cols, LIMITS.minCols, LIMITS.maxCols);
+  const rows = int(c.rows, LIMITS.minRows, LIMITS.maxRows);
+  return { cols, rows, mines: int(c.mines, 1, cols * rows - 9) };
+}
+
 export interface Cell {
   mine: boolean;
   revealed: boolean;

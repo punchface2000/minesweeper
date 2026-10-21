@@ -96,7 +96,7 @@ button { font: inherit; color: inherit; border: 0; cursor: pointer; touch-action
 }
 .cell {
   width: var(--size); height: var(--size);
-  border-radius: var(--radius);
+  border-radius: min(var(--radius), calc(var(--size) * .25));
   background: var(--cell);
   display: grid; place-items: center;
   font-size: calc(var(--size) * .55);
@@ -114,7 +114,7 @@ button { font: inherit; color: inherit; border: 0; cursor: pointer; touch-action
 .n5 { color: #ffb84d; } .n6 { color: #3fd0d0; } .n7 { color: var(--text); } .n8 { color: var(--muted); }
 
 .bottom { display: flex; flex-direction: column; gap: 10px; padding-bottom: 12px; }
-.seg { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--panel); border-radius: 14px; padding: 4px; }
+.seg { display: grid; grid-template-columns: repeat(4, 1fr); background: var(--panel); border-radius: 14px; padding: 4px; }
 .seg button { background: none; padding: 10px 0; border-radius: 11px; color: var(--muted); font-weight: 600; }
 .seg button.on { background: var(--accent); color: #fff; }
 .row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -135,3 +135,18 @@ button { font: inherit; color: inherit; border: 0; cursor: pointer; touch-action
 .sheet-card li { display: flex; justify-content: space-between; padding: 4px 0; }
 .sheet-card li.none { color: var(--muted); }
 .primary { margin-top: 16px; width: 100%; background: var(--accent); color: #fff; padding: 14px; border-radius: 14px; font-weight: 700; }
+
+.custom-form { display: grid; gap: 12px; margin-top: 6px; }
+.field { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; }
+.field label { font-weight: 600; }
+.field small { display: block; color: var(--muted); font-weight: 400; font-size: 12px; }
+.stepper { display: flex; align-items: center; background: var(--cell); border-radius: 12px; }
+.stepper button { width: 44px; height: 44px; background: none; font-size: 22px; font-weight: 700; }
+.stepper input {
+  width: 56px; height: 44px; text-align: center; border: 0; background: none; color: var(--text);
+  font: inherit; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums;
+  -webkit-user-select: text; user-select: text; appearance: textfield; -moz-appearance: textfield;
+}
+.stepper input::-webkit-outer-spin-button, .stepper input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.hint { color: var(--muted); font-size: 13px; margin: 0; }
+.secondary { background: var(--cell); padding: 14px; border-radius: 14px; font-weight: 600; width: 100%; margin-top: 8px; }

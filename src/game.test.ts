@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Game, PRESETS } from './game';
+import { Game, PRESETS, clampConfig } from './game';
 
 // deterministic RNG for reproducible boards
 function seeded(seed: number) {
@@ -92,5 +92,29 @@ describe('Game', () => {
     g.reveal(g.cells.findIndex((c) => c.mine));
     expect(g.reveal(0)).toBe(false);
     expect(g.toggleFlag(0)).toBe(false);
+  });
+});
+
+describe('clampConfig', () => {
+  it('keeps valid boards unchanged', () => {
+    expect(clampConfig({ cols: 10, rows: 14, mines: 25 })).toEqual({ cols: 10, rows: 14, mines: 25 });
+  });
+
+  it('clamps size and leaves room for the safe first click', () => {
+    expect(clampConfig({ cols: 99, rows: 1, mines: 9999 })).toEqual({ cols: 16, rows: 5, mines: 71 });
+    expect(clampConfig({ cols: 5, rows: 5, mines: 0 }).mines).toBe(1);
+  });
+
+  it('handles junk input', () => {
+    const c = clampConfig({ cols: NaN, rows: 7.6, mines: -3 });
+    expect(c).toEqual({ cols: 5, rows: 8, mines: 1 });
+  });
+
+  it('a maximum-density board is still winnable on the first click', () => {
+    const c = clampConfig({ cols: 5, rows: 5, mines: 999 });
+    const g = new Game(c);
+    g.reveal(12);
+    expect(g.status).not.toBe('lost');
+    expect(g.cells.filter((x) => x.mine).length).toBe(16);
   });
 });

@@ -1,6 +1,6 @@
 import './style.css';
-import { Game, PRESETS, type Difficulty } from './game';
-import { loadBest, loadSettings, recordTime, saveSettings, type Theme } from './storage';
+import { Game, LIMITS, PRESETS, clampConfig, type Config, type Difficulty } from './game';
+import { loadBest, loadSettings, recordTime, saveSettings, type Mode, type Theme } from './storage';
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -59,7 +59,7 @@ function sizeBoard(): void {
 function newGame(): void {
   stopTimer();
   elapsed = 0;
-  game = new Game(PRESETS[settings.difficulty]);
+  game = new Game(settings.difficulty === 'custom' ? clampConfig(settings.custom) : PRESETS[settings.difficulty]);
   timeEl.textContent = pad(0);
   boardEl.style.gridTemplateColumns = `repeat(${game.cols}, var(--size))`;
   boardEl.replaceChildren();
@@ -104,7 +104,8 @@ function render(): void {
 }
 
 function afterMove(prev: string): void {
-  if (prev === 'ready' && game.status === 'playing') startTimer();
+  // the very first move can already end the game (e.g. a nearly full board), so always stamp the start
+  if (prev === 'ready') startTimer();
   render();
   if (game.status === 'won' || game.status === 'lost') finish();
 }
@@ -114,8 +115,10 @@ function finish(): void {
   elapsed = Math.max(1, Math.floor((Date.now() - startedAt) / 1000));
   timeEl.textContent = pad(elapsed);
   if (game.status === 'won') {
-    const rank = recordTime(settings.difficulty, elapsed);
-    setTimeout(() => showSheet('You win! 🎉', `Cleared in <b>${elapsed}s</b>.` + (rank ? `<br>New #${rank} on ${label(settings.difficulty)}.` : '')), 350);
+    // best times are only kept for the fixed presets, custom boards aren't comparable
+    const rank = settings.difficulty === 'custom' ? null : recordTime(settings.difficulty, elapsed);
+    const note = rank && settings.difficulty !== 'custom' ? `<br>New #${rank} on ${label(settings.difficulty)}.` : '';
+    setTimeout(() => showSheet('You win! 🎉', `Cleared in <b>${elapsed}s</b>.` + note), 350);
   } else {
     setTimeout(() => showSheet('Boom 💥', 'Tap the face to try again.'), 600);
   }
@@ -187,11 +190,71 @@ faceEl.addEventListener('click', newGame);
 
 document.querySelectorAll<HTMLButtonElement>('#difficulty button').forEach((b) =>
   b.addEventListener('click', () => {
-    settings.difficulty = b.dataset.d as Difficulty;
+    const d = b.dataset.d as Mode;
+    if (d === 'custom') {
+      openCustom();
+      return;
+    }
+    settings.difficulty = d;
     saveSettings(settings);
     newGame();
   })
 );
+
+/* ---------- custom board ---------- */
+function openCustom(): void {
+  const c = clampConfig(settings.custom);
+  const field = (id: string, name: string, hint: string, v: number) =>
+    `<div class="field"><label for="${id}">${name}<small>${hint}</small></label>
+     <div class="stepper"><button type="button" data-step="${id}:-1" aria-label="less">−</button>
+     <input id="${id}" type="number" inputmode="numeric" value="${v}"><button type="button" data-step="${id}:1" aria-label="more">+</button></div></div>`;
+  showSheet(
+    'Custom board',
+    `<div class="custom-form">
+      ${field('c-cols', 'Columns', `${LIMITS.minCols}–${LIMITS.maxCols}`, c.cols)}
+      ${field('c-rows', 'Rows', `${LIMITS.minRows}–${LIMITS.maxRows}`, c.rows)}
+      ${field('c-mines', 'Mines', 'at least 1', c.mines)}
+      <p class="hint" id="c-hint"></p>
+      <button type="button" id="c-start" class="primary" style="margin-top:4px">Start game</button>
+    </div>`
+  );
+  $('sheet-close').hidden = true;
+  updateHint();
+}
+
+function readCustom(): Config {
+  const v = (id: string) => Number((document.getElementById(id) as HTMLInputElement).value);
+  return clampConfig({ cols: v('c-cols'), rows: v('c-rows'), mines: v('c-mines') });
+}
+
+function updateHint(): void {
+  const hint = document.getElementById('c-hint');
+  if (!hint) return;
+  const raw = (id: string) => Number((document.getElementById(id) as HTMLInputElement).value);
+  const c = readCustom();
+  const adjusted = c.cols !== raw('c-cols') || c.rows !== raw('c-rows') || c.mines !== raw('c-mines');
+  const maxMines = c.cols * c.rows - 9;
+  const density = Math.round((c.mines / (c.cols * c.rows)) * 100);
+  hint.textContent = `${c.cols}×${c.rows}, ${c.mines} mines (${density}%). Max ${maxMines} mines on this size${adjusted ? ' — values will be adjusted' : ''}.`;
+}
+
+$('sheet-body').addEventListener('input', updateHint);
+$('sheet-body').addEventListener('click', (e) => {
+  const t = (e.target as HTMLElement).closest<HTMLElement>('[data-step],#c-start');
+  if (!t) return;
+  if (t.id === 'c-start') {
+    settings.custom = readCustom();
+    settings.difficulty = 'custom';
+    saveSettings(settings);
+    sheet.hidden = true;
+    newGame();
+    return;
+  }
+  const [id, delta] = t.dataset.step!.split(':');
+  const input = document.getElementById(id) as HTMLInputElement;
+  input.value = String((Number(input.value) || 0) + Number(delta));
+  updateHint();
+});
 
 modeBtn.addEventListener('click', () => {
   flagMode = !flagMode;
@@ -210,6 +273,7 @@ themeBtn.addEventListener('click', () => {
 function showSheet(title: string, html: string): void {
   $('sheet-title').textContent = title;
   $('sheet-body').innerHTML = html;
+  $('sheet-close').hidden = false;
   sheet.hidden = false;
 }
 $('sheet-close').addEventListener('click', () => {
