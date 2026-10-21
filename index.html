@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#0f1115" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Minesweeper" />
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+  <title>Minesweeper</title>
+</head>
+<body>
+  <div id="app">
+    <header class="top">
+      <div class="stat" aria-label="Mines left"><span class="stat-label">Mines</span><span id="mines" class="stat-value">000</span></div>
+      <button id="face" class="face" aria-label="New game">🙂</button>
+      <div class="stat right" aria-label="Time"><span class="stat-label">Time</span><span id="time" class="stat-value">000</span></div>
+    </header>
+
+    <main class="board-wrap"><div id="board" class="board" role="grid"></div></main>
+
+    <footer class="bottom">
+      <div class="seg" id="difficulty" role="tablist">
+        <button data-d="beginner">Easy</button>
+        <button data-d="intermediate">Medium</button>
+        <button data-d="expert">Hard</button>
+      </div>
+      <div class="row">
+        <button id="mode" class="pill" aria-pressed="false">⛏ Dig</button>
+        <button id="best" class="pill">🏆 Best</button>
+        <button id="theme" class="pill">◐ Auto</button>
+      </div>
+    </footer>
+
+    <div id="sheet" class="sheet" hidden>
+      <div class="sheet-card">
+        <h2 id="sheet-title"></h2>
+        <div id="sheet-body"></div>
+        <button id="sheet-close" class="primary">OK</button>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
