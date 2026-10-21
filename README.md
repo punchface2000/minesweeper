@@ -1,6 +1,6 @@
 # Minesweeper
 
-A modern, offline-capable Minesweeper PWA built for iPhone.
+An offline Minesweeper PWA for iPhone, designed like a printed puzzle book.
 
 **Play:** https://punchface2000.github.io/minesweeper/
 
