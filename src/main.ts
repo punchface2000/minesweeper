@@ -93,16 +93,18 @@ const FRAME = 2; // keep in sync with .board border in style.css
 const TARGET_CELL = 44; // comfortable tap size when zoomed in
 let fitCell = 36; // cell size that fits the whole board on screen
 function sizeBoard(): void {
-  const cs = getComputedStyle(wrapEl);
   const availW = wrapEl.clientWidth - 2 * FRAME - GAP * (game.cols - 1);
-  const availH = wrapEl.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - 2 * FRAME - GAP * (game.rows - 1);
+  const availH = wrapEl.clientHeight - 2 * FRAME - GAP * (game.rows - 1);
   fitCell = Math.max(6, Math.floor(Math.min(availW / game.cols, availH / game.rows, 56)));
   zoom.setMaxZoom(TARGET_CELL / fitCell);
+  setCellSize(1); // lay out first, so reset() centres the board at its real size
   zoom.reset();
-  setCellSize(1);
 }
-function setCellSize(z: number): void {
-  boardEl.style.setProperty('--size', `${Math.round(fitCell * z)}px`);
+/** Lay the board out for zoom level z; returns the zoom actually used (cells are whole pixels). */
+function setCellSize(z: number): number {
+  const px = Math.max(1, Math.round(fitCell * z));
+  boardEl.style.setProperty('--size', `${px}px`);
+  return px / fitCell;
 }
 
 function config(): Config {
@@ -290,6 +292,8 @@ function release(): void {
 
 const zoom = attachZoom(wrapEl, frameEl, {
   commit: setCellSize,
+  pitch: () => (cellEls[1]?.offsetLeft ?? 0) - (cellEls[0]?.offsetLeft ?? 0) || parseFloat(boardEl.style.getPropertyValue('--size')) + GAP,
+  inset: FRAME,
   onChange: (z) => (fitBtn.hidden = z <= 1.01),
   onGestureStart: release
 });

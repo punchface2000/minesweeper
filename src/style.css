@@ -91,10 +91,11 @@ h1 i { font-weight: 400; }
 .new:active span { color: var(--red); border-color: var(--red); }
 
 /* ============ Board ============ */
-.board-wrap { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; padding: 14px 0; overflow: hidden; touch-action: none; }
-.board-frame { position: relative; transform-origin: 0 0; }
+/* The zoom controller positions the board itself (centred at rest), so the frame sits at 0,0 */
+.board-wrap { position: relative; flex: 1; min-height: 0; margin: 14px 0; overflow: hidden; touch-action: none; }
+.board-frame { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
 .fit {
-  position: absolute; right: 0; bottom: 18px; z-index: 2;
+  position: absolute; right: 0; bottom: 4px; z-index: 2;
   padding: 7px 12px; border-radius: 999px;
   background: var(--ink); color: var(--paper);
   box-shadow: 0 4px 14px rgba(0, 0, 0, .2);
